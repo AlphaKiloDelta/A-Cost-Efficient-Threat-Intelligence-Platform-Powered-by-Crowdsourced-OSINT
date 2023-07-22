@@ -311,6 +311,26 @@ Resources:
     Type: 'AWS::EC2::KeyPair'
     Properties:
       KeyName: TIP-SshTunnelKey
+  DocDBKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      Description: Encryption key for TIP-DocDBCluster
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: TIP-DocDBKeyPolicy
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: 'kms:*'
+            Resource: '*'
+  DocDBKeyAlias:
+    Type: 'AWS::KMS::Alias'
+    Properties:
+      AliasName: alias/TIP-DocDBKey
+      TargetKeyId: !Ref DocDBKey
   DocDBCredentials:
     Type: 'AWS::SecretsManager::Secret'
     Properties:
@@ -334,6 +354,8 @@ Resources:
       MasterUserPassword: '{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:password}}'
       VpcSecurityGroupIds:
         - !Ref DocDBSg
+      StorageEncrypted: true
+      KmsKeyId: !GetAtt DocDBKey.Arn
     DependsOn: DocDBCredentials
   DocDBSubnetGroup:
     Type: 'AWS::DocDB::DBSubnetGroup'
