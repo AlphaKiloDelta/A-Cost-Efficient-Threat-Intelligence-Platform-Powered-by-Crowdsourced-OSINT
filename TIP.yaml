@@ -1,0 +1,573 @@
+#MIT License
+
+#Copyright (c) 2023 AlphaKiloDelta (GitHub account holder)
+
+#Permission is hereby granted, free of charge, to any person obtaining a copy
+#of this software and associated documentation files (the "Software"), to deal
+#in the Software without restriction, including without limitation the rights
+#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#copies of the Software, and to permit persons to whom the Software is
+#furnished to do so, subject to the following conditions:
+
+#The above copyright notice and this permission notice shall be included in all
+#copies or substantial portions of the Software.
+
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#SOFTWARE.
+
+
+
+
+
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: TIP-VPC
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TIP-IGW
+  VPCGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  IngestFeed:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: TIP-IngestFeed
+      Description: Retrieves and ingests intel feeds into TIP-DocDBCluster, triggered hourly by TIP-HourlyInvoke
+      Environment:
+        Variables:
+          CLUSTER: !GetAtt DocDBCluster.Endpoint
+          USERNAME: '{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:username}}'
+          PASSWORD: '{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:password}}'
+      Code:
+        ZipFile: |
+          import requests
+          import pymongo
+          import json
+          import os
+
+          def lambda_handler(event, context):
+              params = {'query':'get_recent','selector':'time'}
+              r = requests.post('https://mb-api.abuse.ch/api/v1', data=params).text
+              data = json.loads(r)
+              
+              r = requests.get('https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem')
+              caCert = open('/tmp/global-bundle.pem', 'wb')
+              caCert.write(r.content)
+              caCert.close()
+              
+              client = pymongo.MongoClient('mongodb://'+os.environ['USERNAME']+':'+os.environ['PASSWORD']+'@'+os.environ['CLUSTER']+':27017/?tls=true&tlsCAFile=/tmp/global-bundle.pem&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=true')
+              db = client.tip
+              collection = db.tip_collection
+              collection.insert_one(data)
+              client.close()
+      Runtime: python3.10
+      Handler: index.lambda_handler
+      Role: !GetAtt IngestFeedRole.Arn
+      Timeout: 120
+      Layers:
+        - !Ref LambdaLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref IngestFeedSg
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+          - !Ref PrivateSubnetC
+  HourlyInvoke:
+    Type: 'AWS::Scheduler::Schedule'
+    Properties:
+      Name: TIP-HourlyInvoke
+      Description: Invokes the TIP-IngestFeed Lambda function each hour
+      ScheduleExpression: rate(1 hour)
+      State: ENABLED
+      Target:
+        Arn: !GetAtt IngestFeed.Arn
+        RoleArn: !GetAtt HourlyInvokeRole.Arn
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+    DependsOn:
+      - VPCGatewayAttachment
+      - PrivateRouteToInternetA
+      - PrivateRouteToInternetB
+      - PrivateRouteToInternetC
+      - DocDBInstanceA
+  HourlyInvokeRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: TIP-HourlyInvokeRole
+      Description: Grants the TIP-HourlyInvoke schedule permission to invoke the
+        "TIP-IngestFeed" Lambda function
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - scheduler.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: TIP-InvokeIngestFeed
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:InvokeFunction'
+                Resource: !GetAtt IngestFeed.Arn
+  IngestFeedRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: TIP-IngestFeedRole
+      Description: Grants the TIP-IngestFeed Lambda function permission to send logs to CloudWatch, and to manage network interfaces for connectivity
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: TIP-AppendToLogs,EnableConnectivity
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:DeleteNetworkInterface'
+                Resource: '*'
+  LayerSetup:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: TIP-LayerSetup
+      Description: Installs the requests and pymongo libraries and uploads them to tip-layerbucket, for use by the TIP-IngestFeed Lambda function
+      Environment:
+        Variables:
+          BUCKET: !Ref LayerBucket
+      Code:
+        ZipFile: |
+          import subprocess
+          import shutil
+          import boto3
+          import cfnresponse
+          import os
+
+          s3 = boto3.resource('s3')
+
+          def lambda_handler(event, context):
+            subprocess.call('pip install requests -t /tmp/python/ --no-cache-dir'.split())
+            subprocess.call('pip install pymongo -t /tmp/python/ --no-cache-dir'.split())
+            shutil.make_archive('/tmp/layer', 'zip', '/tmp/', 'python')
+            s3.Bucket(os.environ['BUCKET']).upload_file('/tmp/layer'+'.zip', 'layer.zip')
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+      Runtime: python3.10
+      Handler: index.lambda_handler
+      Role: !GetAtt LayerSetupRole.Arn
+      Timeout: 900
+  LayerSetupRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: TIP-LayerSetupRole
+      Description: Grants the TIP-LayerSetup Lambda function permission to send logs to CloudWatch, and to upload to tip-layerbucket
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: TIP-AppendToLogsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+        - PolicyName: TIP-UploadToS3
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource: !Sub 'arn:aws:s3:::${LayerBucket}/*'
+  LayerSetupInvoke:
+    Type: 'AWS::CloudFormation::CustomResource'
+    Version: '1.0'
+    Properties:
+      ServiceToken: !GetAtt LayerSetup.Arn
+  LambdaLayer:
+    Type: 'AWS::Lambda::LayerVersion'
+    Properties:
+      CompatibleRuntimes:
+        - python3.10
+      Content:
+        S3Bucket: !Ref LayerBucket
+        S3Key: layer.zip
+      LayerName: TIP-LambdaLayer
+      Description: Layer for the TIP-IngestFeed Lambda function, contains requests and pymongo
+    DependsOn:
+      - LayerSetupInvoke
+  LayerBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: 'tip-layerbucket'
+  IngestFeedSg:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: TIP-IngestFeedSg
+      GroupDescription: Allows the TIP-IngestFeed function to make API requests to intel repositories via HTTPS, and to ingest feed data into TIP-DocDBCluster
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          CidrIp: 10.0.0.0/16
+      VpcId: !Ref VPC
+  SshTunnelSg:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: TIP-SshTunnelSg
+      GroupDescription: Allows TIP-SshTunnelServer to receive external SSH connections, and to connect to TIP-DocDBCluster
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          CidrIp: 10.0.0.0/16
+      VpcId: !Ref VPC
+  SshTunnelLaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: SshTunnelLaunchTemplate
+      LaunchTemplateData:
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            DeleteOnTermination: true
+            Groups:
+              - !Ref SshTunnelSg
+        ImageId: ami-0e603d96bf395bc01
+        InstanceType: t2.micro
+        KeyName: !Ref SshTunnelKey
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+            - Key: Name
+              Value: TIP-SshTunnelServer
+  SshTunnelAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref SshTunnelLaunchTemplate
+        Version: !GetAtt SshTunnelLaunchTemplate.LatestVersionNumber
+      MaxSize: 1
+      MinSize: 1
+      VPCZoneIdentifier:   
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+        - !Ref PublicSubnetC
+    DependsOn:
+      - VPCGatewayAttachment
+  SshTunnelKey:
+    Type: 'AWS::EC2::KeyPair'
+    Properties:
+      KeyName: TIP-SshTunnelKey
+  DocDBCredentials:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: TIP-DocDBCredentials
+      Description: Username and password for TIP-DocDBCluster
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "tipdbadmin"}'
+        GenerateStringKey: "password"
+        ExcludeCharacters: '"@/#%:='
+  DocDBCluster:
+    Type: 'AWS::DocDB::DBCluster'
+    Properties:
+      BackupRetentionPeriod: 7
+      DBClusterIdentifier: TIP-DocDBCluster
+      DBClusterParameterGroupName: !Ref DocDBParameterGroup
+      DBSubnetGroupName: !Ref DocDBSubnetGroup
+      DeletionProtection: true
+      EnableCloudwatchLogsExports:
+        - audit
+      MasterUsername: '{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:username}}'
+      MasterUserPassword: '{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:password}}'
+      VpcSecurityGroupIds:
+        - !Ref DocDBSg
+    DependsOn: DocDBCredentials
+  DocDBSubnetGroup:
+    Type: 'AWS::DocDB::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupName: TIP-DocDBSubnetGroup
+      DBSubnetGroupDescription: Subnet group for TIP-DocDBCluster
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+        - !Ref PrivateSubnetC
+  DocDBParameterGroup:
+    Type: 'AWS::DocDB::DBClusterParameterGroup'
+    Properties:
+      Name: TIP-DocDBParameterGroup
+      Description: Enables TLS and audit logging for TIP-DocDBCluster
+      Family: docdb5.0
+      Parameters:
+        audit_logs: all
+        tls: enabled
+  DocDBSg:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: TIP-DocDBSg
+      GroupDescription: Allows inbound connections from TIP-VPC to TIP-DocDBCluster
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          CidrIp: 10.0.0.0/16
+      VpcId: !Ref VPC
+  DocDBInstanceA:
+    Type: 'AWS::DocDB::DBInstance'
+    Properties:
+      AvailabilityZone: eu-west-2a
+      DBClusterIdentifier: !Ref DocDBCluster
+      DBInstanceClass: db.t3.medium
+      DBInstanceIdentifier: TIP-DocDBInstanceA
+  DocDBInstanceB:
+    Type: 'AWS::DocDB::DBInstance'
+    Properties:
+      AvailabilityZone: eu-west-2b
+      DBClusterIdentifier: !Ref DocDBCluster
+      DBInstanceClass: db.t3.medium
+      DBInstanceIdentifier: TIP-DocDBInstanceB
+    DependsOn: DocDBInstanceA
+  DocDBInstanceC:
+    Type: 'AWS::DocDB::DBInstance'
+    Properties:
+      AvailabilityZone: eu-west-2c
+      DBClusterIdentifier: !Ref DocDBCluster
+      DBInstanceClass: db.t3.medium
+      DBInstanceIdentifier: TIP-DocDBInstanceC
+    DependsOn: DocDBInstanceB
+  PrivateSubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: eu-west-2a
+      CidrBlock: 10.0.0.0/24
+      Tags:
+        - Key: Name
+          Value: TIP-PrivateSubnetA
+  PrivateSubnetB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: eu-west-2b
+      CidrBlock: 10.0.10.0/24
+      Tags:
+        - Key: Name
+          Value: TIP-PrivateSubnetB
+  PrivateSubnetC:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: eu-west-2c
+      CidrBlock: 10.0.20.0/24
+      Tags:
+        - Key: Name
+          Value: TIP-PrivateSubnetC
+  PublicSubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: eu-west-2a
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: TIP-PublicSubnetA
+  PublicSubnetB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: eu-west-2b
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: TIP-PublicSubnetB
+  PublicSubnetC:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: eu-west-2c
+      CidrBlock: 10.0.21.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: TIP-PublicSubnetC
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: TIP-PublicRouteTable
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetRouteTableAssociationA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetRouteTableAssociationB:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetRouteTableAssociationC:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId: !Ref PublicRouteTable
+  NATGatewayElasticIPA:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: TIP-NATGatewayEIPA
+  NATGatewayElasticIPB:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: TIP-NATGatewayEIPB
+  NATGatewayElasticIPC:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: TIP-NATGatewayEIPC
+  NATGatewayA:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt NATGatewayElasticIPA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: TIP-NATGatewayA
+  NATGatewayB:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt NATGatewayElasticIPB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: TIP-NATGatewayB
+  NATGatewayC:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt NATGatewayElasticIPC.AllocationId
+      SubnetId: !Ref PublicSubnetC
+      Tags:
+        - Key: Name
+          Value: TIP-NATGatewayC
+  PrivateRouteTableA:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: TIP-PrivateRouteTableA
+  PrivateRouteTableB:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: TIP-PrivateRouteTableB
+  PrivateRouteTableC:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: TIP-PrivateRouteTableC
+  PrivateRouteToInternetA:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayA
+  PrivateRouteToInternetB:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayB
+  PrivateRouteToInternetC:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableC
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayC
+  PrivateSubnetRouteTableAssociationA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTableA
+  PrivateSubnetRouteTableAssociationB:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTableB
+  PrivateSubnetRouteTableAssociationC:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTableC
