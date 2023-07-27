@@ -14,11 +14,11 @@ Following the callouts in the above diagram:
 4) The retrieved OSINT data is ingested into the DocumentDB cluster.
 5) Using a compatible data analytics tool (Power BI is recommended), the analyst will remotely connect to the DocumentDB cluster to retrieve all ingested data. As the cluster is distributed across private subnets, the analyst connects via an SSH tunnel in a public subnet.
 
-## Availability, Scalability, and Resilience
+## Availability, Elasticity, and Resilience
 - The TIP is hosted across three Availability Zones to ensure high availability.
 - DocumentDB automatically promotes a Replica Instance (read-only) to a Primary Instance (writable) if the current Primary Instance fails.
 - DocumentDB storage automatically scales with the cluster volume's data. The cluster can be vertically scaled by modifying its instances' classes, and horizontally scaled by adding or removing instances.
-- The SSH tunnel server is in an EC2 Auto Scaling group which spins up another pre-configured tunnel server as soon as the tunnel fails.
+- The SSH tunnel server is in an EC2 Auto Scaling group which spins up another pre-configured tunnel server from a launch template as soon as the tunnel fails.
 - The "IngestFeed" Lambda function is configured to deploy in any of the three Availability Zones' private subnets. To support this, a NAT Gateway is present in the public subnet of each Availability Zone.
 - Automated backups of DocumentDB are retained for seven days.
 
@@ -31,13 +31,15 @@ Following the callouts in the above diagram:
 - The SSH tunnel server requires an SSH key to connect, found in the Parameter Store in Systems Manager.
 - The DocumentDB cluster, SSH tunnel server, and "IngestFeed" Lambda function have security groups applied to them which allow inbound/outbound connections to only the ports and IP ranges they require.
 - DocumentDB audit logs and Lambda logs are sent to CloudWatch.
+- Delete protection is enabled on the DocumentDB cluster.
 
 ## Notes
 This template is ready-to-deploy with no configuration required. The stack is built in little over 20 minutes, and automatically begins ingesting data from MalwareBazaar. Resource names are prepended with "TIP-" for easy identification in AWS after the stack is built, to help distinguish from other resources owned by the account.
 
 If required, the template can be easily configured to suit the user's specific requirements. For example:
 - MalwareBazaar is used as a proof of concept, as explained in the paper. Additional intelligence feeds can (and should) be integrated by adding them to the "IngestFeed" Lambda function.
-- This TIP is deployed to eu-west-2, however the region can be change to any other which supports all services/features used in the template.
+- The TIP is deployed to eu-west-2, however the region can be change to any other which supports all services/features used in the template.
+- The TIP is deployed to three Availability Zones, however this can be increased or decreased if desired depending on how many zones are available in the chosen region. A minimum of two Availability Zones is recommended for a highly available deployment.
 - If data-at-rest encryption is not desired, simply remove the "StorageEncrypted" and "KmsKeyId" properties from the "DocDBCluster" resource. In this case, also remove the "DocDBKey" and "DocDBKeyAlias" resources from the template.
 - The automated backup retention period for DocumentDB is seven days, however this can be increased or decreased if desired.
 - The SSH tunnel server Auto Scaling group has a maximum and minimum capacity of 1, this can be increased if the user desires more than one SSH tunnel server available at a time.
