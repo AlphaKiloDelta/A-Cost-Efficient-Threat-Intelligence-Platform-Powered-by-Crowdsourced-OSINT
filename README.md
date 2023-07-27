@@ -31,7 +31,7 @@ Following the callouts in the above diagram:
 - The SSH tunnel server requires an SSH key to connect, found in the Parameter Store in Systems Manager.
 - The DocumentDB cluster, SSH tunnel server, and "IngestFeed" Lambda function have security groups applied to them which allow inbound/outbound connections to only the ports and IP ranges they require.
 - DocumentDB audit logs and Lambda logs are sent to CloudWatch.
-- Delete protection is enabled on the DocumentDB cluster.
+- Deletion protection is enabled on the DocumentDB cluster.
 
 ## Notes
 This template is ready-to-deploy with no configuration required. The stack is built in little over 20 minutes, and automatically begins ingesting data from MalwareBazaar. Resource names are prepended with "TIP-" for easy identification in AWS after the stack is built, to help distinguish from other resources owned by the account.
