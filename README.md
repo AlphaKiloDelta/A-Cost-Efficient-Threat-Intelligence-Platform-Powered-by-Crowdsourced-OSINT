@@ -4,7 +4,7 @@ The paper's "Conclusion and Future Work" section refers to the development of a 
 
 ![image](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/4e479341-8d33-46e7-8014-0ccf0d47c047)
 
-This TIP is available as a CloudFormation template in this repository ([TIP.yaml](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/blob/main/TIP.yaml)). Unlike the simple model TIP presented as a proof of concept in the paper, this TIP conforms to the AWS Well-Architected Framework and is suitable for a production deployment.
+This TIP is available as a CloudFormation template in this repository (<a href="https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/blob/main/TIP.yaml" target="_blank">TIP.yaml</a>). Unlike the simple model TIP presented as a proof of concept in the paper, this TIP conforms to the AWS Well-Architected Framework and is suitable for a production deployment.
 
 ## Process
 Following the callouts in the above diagram:
@@ -29,7 +29,8 @@ Following the callouts in the above diagram:
 - The DocumentDB cluster credentials are stored in Secrets Manager and the password is referenced implicitly in the template.
 - The DocumentDB password is a randomly-generated 32-character string consisting of upper- and lower-case letters, numbers, and symbols.
 - The SSH tunnel server requires an SSH key to connect, found in the Parameter Store in Systems Manager.
-- The DocumentDB cluster, SSH tunnel server, and "IngestFeed" Lambda function have security groups applied to them which allow inbound/outbound connections to only the ports and IP ranges they require.
+- The DocumentDB cluster, SSH tunnel server, and "IngestFeed" Lambda function have security groups applied to them which allow inbound/outbound traffic to only the ports and IP ranges they require.
+- All public and private subnets have network ACLs applied to them which allow inbound/outbound traffic to only the ports and IP ranges they require.
 - DocumentDB audit logs and Lambda logs are sent to CloudWatch.
 - Deletion protection is enabled on the DocumentDB cluster.
 
@@ -47,10 +48,11 @@ If required, the template can be easily configured to suit the user's specific r
 These are simply some examples of changes which may be made to the template, it can be customised in any way to suit the needs of the user. Removal of security components is not recommended, however.
 
 ## How to Connect
-Power BI is the recommended data analytics tool. Information on how to configure the DocumentDB custom connector can be found here: https://docs.aws.amazon.com/documentdb/latest/developerguide/connect-odbc-power-bi.html
+Power BI is the recommended data analytics tool. Information on how to configure the DocumentDB custom connector can be found <a href="https://docs.aws.amazon.com/documentdb/latest/developerguide/connect-odbc-power-bi.html" target="_blank">here</a>.
 
 Upon successful configuration, Power BI will be able to establish a connection to the DocumentDB cluster and retrieve all stored data. Visualisations can then be produced.
 
 ## CloudFormation Diagram
 
-![image](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/d252f869-c79a-4f46-be29-ec6b3166fa48)
+![CloudFormation Diagram](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/72654883-2999-4c35-8039-e67ac918322c)
+
