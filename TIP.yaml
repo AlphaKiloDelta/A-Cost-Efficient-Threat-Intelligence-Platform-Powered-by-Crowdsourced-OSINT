@@ -340,7 +340,7 @@ Resources:
       GenerateSecretString:
         SecretStringTemplate: '{"username": "tipdbadmin"}'
         GenerateStringKey: "password"
-        ExcludeCharacters: '"@/#%:'
+        ExcludeCharacters: '"@/#%:='
         PasswordLength: 99
   DocDBCluster:
     Type: 'AWS::DocDB::DBCluster'
