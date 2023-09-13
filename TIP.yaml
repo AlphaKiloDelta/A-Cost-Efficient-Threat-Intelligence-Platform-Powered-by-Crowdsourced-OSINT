@@ -61,6 +61,7 @@ Resources:
           import pymongo
           import json
           import os
+          import urllib.parse
 
           def lambda_handler(event, context):
               params = {'query':'get_recent','selector':'time'}
@@ -72,7 +73,7 @@ Resources:
               caCert.write(r.content)
               caCert.close()
               
-              client = pymongo.MongoClient('mongodb://'+os.environ['USERNAME']+':'+os.environ['PASSWORD']+'@'+os.environ['CLUSTER']+':27017/?tls=true&tlsCAFile=/tmp/global-bundle.pem&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=true')
+              client = pymongo.MongoClient('mongodb://'+os.environ['USERNAME']+':'+urllib.parse.quote(os.environ['PASSWORD'])+'@'+os.environ['CLUSTER']+':27017/?tls=true&tlsCAFile=/tmp/global-bundle.pem&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=true')
               db = client.tip
               collection = db.tip_collection
               collection.insert_one(data)
@@ -339,7 +340,8 @@ Resources:
       GenerateSecretString:
         SecretStringTemplate: '{"username": "tipdbadmin"}'
         GenerateStringKey: "password"
-        ExcludeCharacters: '"@/#%:='
+        ExcludeCharacters: '"@/'
+        PasswordLength: 99
   DocDBCluster:
     Type: 'AWS::DocDB::DBCluster'
     Properties:
