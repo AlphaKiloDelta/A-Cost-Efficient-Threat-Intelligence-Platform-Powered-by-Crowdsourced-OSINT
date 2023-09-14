@@ -37,7 +37,7 @@ Following the callouts in the above diagram:
 ## Cost Analysis
 The table below breaks down the daily cost of operating the template as is.
 
-![Cost Analysis](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/901fed1b-39ba-45cf-8b3c-1b2f3eab8a74)
+![Cost Analysis](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/4069852f-af84-4c36-a6ee-22c09d53d9e8)
 
 The data is sourced from Cost Explorer and representative of service usage in the eu-west-2 region in July 2023.
 
