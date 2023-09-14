@@ -24,10 +24,10 @@ Following the callouts in the above diagram:
 
 ## Security
 - All data is encrypted both in transit and at rest.
-  - Data in Transit: Encrypted by TLS.
-  - Data at Rest: Encrypted by an AES-256 customer-managed key in KMS (alias: "TIP-DocDBKey").
+  - Data in Transit: Encrypted by TLS using the AWS certificate bundle.
+  - Data at Rest: Encrypted by an AES-256 customer-managed key in KMS (alias: "TIP-DocDBKey") with automatic key rotation enabled.
 - The DocumentDB cluster credentials are stored in Secrets Manager and the password is referenced implicitly in the template.
-- The DocumentDB password is a randomly-generated 32-character string consisting of upper- and lower-case letters, numbers, and symbols.
+- The DocumentDB password is a randomly-generated 99-character string consisting of upper/lower case letters and numbers.
 - The SSH tunnel server requires an SSH key to connect, found in the Parameter Store in Systems Manager.
 - The DocumentDB cluster, SSH tunnel server, and "IngestFeed" Lambda function have security groups applied to them which allow inbound/outbound traffic to only the ports and IP ranges they require.
 - All public and private subnets have network ACLs applied to them which allow inbound/outbound traffic to only the ports and IP ranges they require.
@@ -35,15 +35,16 @@ Following the callouts in the above diagram:
 - Deletion protection is enabled on the DocumentDB cluster.
 
 ## Notes
-This template is ready-to-deploy with no configuration required. The stack is built in little over 20 minutes, and automatically begins ingesting data from MalwareBazaar. Resource names are prepended with "TIP-" for easy identification in AWS after the stack is built, to help distinguish from other resources owned by the account.
+This template is ready-to-deploy with no configuration required. The stack is built in little over 20 minutes as is, and automatically begins ingesting data from MalwareBazaar. Resource names are prepended with "TIP-" for easy identification in AWS after the stack is built, to help distinguish from other resources owned by the account.
 
 If required, the template can be easily configured to suit the user's specific requirements. For example:
 - MalwareBazaar is used as a proof of concept, as explained in the paper. Additional intelligence feeds can (and should) be integrated by adding them to the "IngestFeed" Lambda function.
-- The TIP is deployed to eu-west-2, however the region can be change to any other which supports all services/features used in the template.
+- The TIP is deployed to eu-west-2, however the region can be changed to any other which supports all services/features used in the template.
 - The TIP is deployed to three Availability Zones, however this can be increased or decreased if desired depending on how many zones are available in the chosen region. A minimum of two Availability Zones is recommended for a highly available deployment.
 - If data-at-rest encryption is not desired, simply remove the "StorageEncrypted" and "KmsKeyId" properties from the "DocDBCluster" resource. In this case, also remove the "DocDBKey" and "DocDBKeyAlias" resources from the template.
 - The automated backup retention period for DocumentDB is seven days, however this can be increased or decreased if desired.
 - The SSH tunnel server Auto Scaling group has a maximum and minimum capacity of 1, this can be increased if the user desires more than one SSH tunnel server available at a time.
+- For inbound SSH traffic, "SshTunnelSg" and "PublicNACLInboundSsh" can be modified to permit the user's specific public IP range instead of permitting all addresses via 0.0.0.0/0. 
 
 These are simply some examples of changes which may be made to the template, it can be customised in any way to suit the needs of the user. Removal of security components is not recommended, however.
 
