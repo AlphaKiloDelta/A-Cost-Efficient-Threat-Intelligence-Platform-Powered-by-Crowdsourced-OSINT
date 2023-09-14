@@ -42,7 +42,7 @@ The table below breaks down the daily cost of operating the template as is.
 The data is sourced from Cost Explorer and representative of service usage in the eu-west-2 region in July 2023.
 
 ## Notes
-The template is ready-to-deploy with no configuration required. The stack is built in little over 20 minutes, and automatically begins ingesting data from MalwareBazaar after the primary instance is created. Resource names are prepended with "TIP-" for easy identification in AWS after the stack is built, to help distinguish from other resources owned by the account.
+The template is ready-to-deploy with no configuration required. The stack is built in little over 20 minutes, and automatically begins ingesting data from MalwareBazaar once the DocumentDB primary instance is created. Resource names are prepended with "TIP-" for easy identification in AWS after the stack is built, to help distinguish from other resources owned by the account.
 
 If required, the template can be easily configured to suit the user's specific requirements. For example:
 - MalwareBazaar is used as a proof of concept, as explained in the paper. Additional intelligence feeds can (and should) be integrated by adding them to the "IngestFeed" Lambda function.
