@@ -61,6 +61,8 @@ Power BI is the recommended data analytics tool. Information on how to configure
 
 Upon successful configuration, Power BI will be able to establish a connection to the DocumentDB cluster and retrieve all stored data. Visualisations can then be produced.
 
+Note: In the template, the password is generate without symbols/punctuation. It is recommended to be left this way, containing only letters and numbers, as [symbols are known to cause connectivity issues with the ODBC driver](https://github.com/aws/amazon-documentdb-odbc-driver/issues/193).
+
 ## CloudFormation Diagram
 
 ![CloudFormation Diagram](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/72654883-2999-4c35-8039-e67ac918322c)
