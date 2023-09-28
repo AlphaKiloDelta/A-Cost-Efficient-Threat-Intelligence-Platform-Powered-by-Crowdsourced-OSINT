@@ -52,8 +52,8 @@ resource "aws_lambda_function" "ingest_feed" {
   environment {
     variables = {
       CLUSTER = aws_docdb_cluster.doc_db_cluster.endpoint
-      USERNAME = "{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:username}}"
-      PASSWORD = "{{resolve:secretsmanager:TIP-DocDBCredentials:SecretString:password}}"
+      USERNAME = jsondecode(data.aws_secretsmanager_secret_version.doc_db_credentials.secret_string)["username"]
+      PASSWORD = jsondecode(data.aws_secretsmanager_secret_version.doc_db_credentials.secret_string)["password"]
     }
   }
   filename = "IngestFeed.zip"
@@ -102,17 +102,17 @@ resource "aws_iam_role" "hourly_invoke_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = [
-            "scheduler.amazonaws.com"
-          ]
-        }
-        Action = [
-          "sts:AssumeRole"
+    {
+      Effect = "Allow"
+      Principal = {
+        Service = [
+          "scheduler.amazonaws.com"
         ]
       }
+      Action = [
+        "sts:AssumeRole"
+      ]
+    }
     ]
   })
   inline_policy {
@@ -136,65 +136,65 @@ resource "aws_iam_role" "ingest_feed_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = [
-            "lambda.amazonaws.com"
-          ]
-        }
-        Action = [
-          "sts:AssumeRole"
+    {
+      Effect = "Allow"
+      Principal = {
+        Service = [
+          "lambda.amazonaws.com"
         ]
       }
+      Action = [
+        "sts:AssumeRole"
+      ]
+    }
     ]
   })
   path = "/"
   inline_policy {
     name = "TIP-AppendToLogs,EnableConnectivity"
     policy = jsonencode({
-		Version = "2012-10-17"
-        Statement = [
-          {
-            Effect = "Allow"
-            Action = [
-              "logs:CreateLogGroup",
-              "logs:CreateLogStream",
-              "logs:PutLogEvents",
-              "ec2:CreateNetworkInterface",
-              "ec2:DescribeNetworkInterfaces",
-              "ec2:DeleteNetworkInterface"
-            ]
-            Resource = "*"
-          }
+	  Version = "2012-10-17"
+      Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "ec2:CreateNetworkInterface",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DeleteNetworkInterface"
         ]
-      })
-    }
+        Resource = "*"
+      }
+      ]
+    })
+  }
 }
 
 resource "aws_lambda_layer_version" "lambda_layer" {
-	  layer_name = "TIP-LambdaLayer"
-	  compatible_runtimes = ["python3.10"]
-	  filename = "LambdaLayer.zip"
-	  description = "Layer for the TIP-IngestFeed Lambda function, contains requests and pymongo"
+  layer_name = "TIP-LambdaLayer"
+  compatible_runtimes = ["python3.10"]
+  filename = "LambdaLayer.zip"
+  description = "Layer for the TIP-IngestFeed Lambda function, contains requests and pymongo"
 }
 
 resource "aws_security_group" "ingest_feed_sg" {
-	name = "TIP-IngestFeedSg"
-	description = "Allows the TIP-IngestFeed function to make API requests to intel repositories via HTTPS, and to ingest feed data into TIP-DocDBCluster"
-	vpc_id = aws_vpc.vpc.id
-	egress {
-			protocol = "tcp"
-			from_port = 443
-			to_port = 443
-			cidr_blocks = ["0.0.0.0/0"]
-		}
-	egress {
-			protocol = "tcp"
-			from_port = 27017
-			to_port = 27017
-			cidr_blocks = ["10.0.0.0/16"]
-		}
+  name = "TIP-IngestFeedSg"
+  description = "Allows the TIP-IngestFeed function to make API requests to intel repositories via HTTPS, and to ingest feed data into TIP-DocDBCluster"
+  vpc_id = aws_vpc.vpc.id
+  egress {
+    protocol = "tcp"
+	from_port = 443
+	to_port = 443
+	cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+	protocol = "tcp"
+	from_port = 27017
+	to_port = 27017
+	cidr_blocks = ["10.0.0.0/16"]
+  }
 }
 
 resource "aws_security_group" "ssh_tunnel_sg" {
@@ -217,34 +217,34 @@ resource "aws_security_group" "ssh_tunnel_sg" {
 
 resource "aws_launch_template" "ssh_tunnel_launch_template" {
   name = "SshTunnelLaunchTemplate"
-    network_interfaces {
-        device_index = 0
-        associate_public_ip_address = true
-        delete_on_termination = true
-        security_groups = [aws_security_group.ssh_tunnel_sg.id]
-      }
-    image_id = "ami-0e603d96bf395bc01"
-    instance_type = "t2.micro"
-    key_name = aws_key_pair.ssh_tunnel_key.id
-    tag_specifications {
-        resource_type = "instance"
-        tags = {
-            Name: "TIP-SshTunnelServer"
-          }
-      }
+  network_interfaces {
+    device_index = 0
+    associate_public_ip_address = true
+    delete_on_termination = true
+    security_groups = [aws_security_group.ssh_tunnel_sg.id]
+  }
+  image_id = "ami-0e603d96bf395bc01"
+  instance_type = "t2.micro"
+  key_name = aws_key_pair.ssh_tunnel_key.id
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name: "TIP-SshTunnelServer"
+    }
+  }
 }
 
 resource "aws_autoscaling_group" "ssh_tunnel_asg" {
   launch_template {
-  id = aws_launch_template.ssh_tunnel_launch_template.id
-  version = aws_launch_template.ssh_tunnel_launch_template.latest_version
+    id = aws_launch_template.ssh_tunnel_launch_template.id
+    version = aws_launch_template.ssh_tunnel_launch_template.latest_version
   }
   max_size = 1
   min_size = 1
   vpc_zone_identifier = [
-  aws_subnet.public_subnet_a.id,
-  aws_subnet.public_subnet_b.id,
-  aws_subnet.public_subnet_c.id
+    aws_subnet.public_subnet_a.id,
+    aws_subnet.public_subnet_b.id,
+    aws_subnet.public_subnet_c.id
   ]
   
   depends_on = [
@@ -274,15 +274,15 @@ resource "aws_kms_key" "doc_db_key" {
     Version = "2012-10-17"
     Id = "TIP-DocDBKeyPolicy"
     Statement = [
-      {
-        Sid = "Enable IAM User Permissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action = "kms:*"
-        Resource = "*"
+    {
+      Sid = "Enable IAM User Permissions"
+      Effect = "Allow"
+      Principal = {
+        AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
       }
+      Action = "kms:*"
+      Resource = "*"
+    }
     ]
   })
 }
@@ -307,10 +307,7 @@ resource "aws_secretsmanager_secret_version" "doc_db_credentials" {
   secret_string = jsonencode({
     "username": "tipdbadmin",
     "password": data.aws_secretsmanager_random_password.doc_db_credentials.random_password
-   })
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
+  })
 }
 
 data "aws_secretsmanager_secret" "doc_db_credentials" {
