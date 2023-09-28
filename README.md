@@ -4,7 +4,7 @@ The paper's "Conclusion and Future Work" section refers to the development of a 
 
 ![AWS Diagram](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/assets/68220964/4e479341-8d33-46e7-8014-0ccf0d47c047)
 
-This TIP is available as a CloudFormation template in this repository ([TIP.yaml](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/blob/main/TIP.yaml)). Unlike the simple model TIP presented as a proof of concept in the paper, this TIP conforms to the AWS Well-Architected Framework and is suitable for a production deployment.
+This TIP is available as both a CloudFormation template ([CloudFormation.yaml](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/blob/main/CloudFormation.yaml)) and a Terraform file ([Terraform.tf](https://github.com/AlphaKiloDelta/A-Cost-Efficient-Threat-Intelligence-Platform-Powered-by-Crowdsourced-OSINT/blob/main/Terraform/Terraform.tf)) in this repository. Unlike the simple model TIP presented as a proof of concept in the paper, this TIP conforms to the AWS Well-Architected Framework and is suitable for a production deployment.
 
 ## Process
 Following the callouts in the above diagram:
