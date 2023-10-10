@@ -64,7 +64,7 @@ Resources:
 
           def lambda_handler(event, context):
               params = {'query':'get_recent','selector':'time'}
-              r = requests.post('https://mb-api.abuse.ch/api/v1', data=params).text
+              r = requests.post('https://mb-api.abuse.ch/api/v1/', data=params).text
               data = json.loads(r)
               
               r = requests.get('https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem')
