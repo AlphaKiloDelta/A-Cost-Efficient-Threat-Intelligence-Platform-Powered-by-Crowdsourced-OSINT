@@ -5,7 +5,7 @@ import os
 
 def lambda_handler(event, context):
     params = {'query':'get_recent','selector':'time'}    #Define parameters for MalwareBazaar API query
-    r = requests.post('https://mb-api.abuse.ch/api/v1', data=params).text    #Make POST request to MalwareBazaar API, retrieving metadata of all samples uploaded to the repository in the past hour
+    r = requests.post('https://mb-api.abuse.ch/api/v1/', data=params).text    #Make POST request to MalwareBazaar API, retrieving metadata of all samples uploaded to the repository in the past hour
     data = json.loads(r)    #Convert retrieved JSON string into Python Dictionary format
     #Retrieve additional feeds here
                   
